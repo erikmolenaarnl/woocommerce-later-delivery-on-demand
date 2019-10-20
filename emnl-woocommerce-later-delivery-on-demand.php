@@ -12,7 +12,6 @@
 if (!defined('ABSPATH')) exit;
 
 
-
 add_action('woocommerce_review_order_after_shipping', 'emnl_later_delivery_on_demand');
 /**
  * @brief The delivery option tied to an action hook , outputting delivery fields on checkout after shipping
@@ -112,18 +111,15 @@ function emnl_later_delivery_on_demand()
 
         if (isset($posted_data['emnl-later-delivery-date']) && !empty($posted_data['emnl-later-delivery-date'])) {
 
-            $validate_date = explode('/', $posted_data['emnl-later-delivery-date']);
-            if (is_array($validate_date) && count($validate_date) === 3 && checkdate($validate_date[0], $validate_date[1], $validate_date[2])) {
+            $validate_date = explode('-', $posted_data['emnl-later-delivery-date']);
+
+            if (is_array($validate_date) && count($validate_date) === 3 && checkdate($validate_date[1], $validate_date[2], $validate_date[0])) {
                 WC()->session->set('emnl-later-delivery-date', $posted_data['emnl-later-delivery-date']);
                 $date = $posted_data['emnl-later-delivery-date'];
             }
 
         }
     }
-
-
-    //enqueue datepicker script
-    wp_enqueue_script('jquery-ui-datepicker');
 
 
     // Create the later delivery checkbox
@@ -138,6 +134,18 @@ function emnl_later_delivery_on_demand()
 
     //JQuery is not used to show /hide datepicker field, the field is only rendered when checkbox is checked (since we need to update the values in session )
     if ($checked) {
+
+        echo '<script type="text/javascript">
+
+        jQuery(document).ready(function ($) {
+            
+                $("#emnl-later-delivery-date").on("change", function () {
+                    $(document.body).trigger("update_checkout");
+                });
+        });
+
+        </script>';
+
         // The element with date field and further instructions (hidden if checkbox is NOT checked)
         echo '<div id="emnl-later-delivery-wrapper">';
 
@@ -153,29 +161,14 @@ function emnl_later_delivery_on_demand()
         echo '</p>';
 
 
-        //include required jQuery to activate datepicker field
-        echo '
-    <script>
-        jQuery(function($){
-            var datePicker = $("#emnl-later-delivery-date").datepicker({
-                   minDate: new Date(),
-                   onSelect: function(dateText, inst) { 
-                                $(document.body).trigger("update_checkout");
-                            }
-            });
-
-        });
-    </script>';
-
         woocommerce_form_field('emnl-later-delivery-date', array(
-            'type' => 'text',
+            'type' => 'date',
             'class' => array('form-row-wide'),
             'id' => 'emnl-later-delivery-date',
             'label' => __(ucwords($later_delivery_verb3) . ' moet (naar verwachting) plaatsvinden vanaf:'),
             'required' => true,
         ),
             $date);
-
         echo '</div>';
 
     }
@@ -185,6 +178,56 @@ function emnl_later_delivery_on_demand()
 
 }
 
+add_action('woocommerce_checkout_create_order_shipping_item', 'enml_modify_shipping_method_title', 10, 4);
+function enml_modify_shipping_method_title($item, $package_key, $package, $order)
+{
+    if (isset($_POST['emnl-later-delivery-checkbox']) && isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
+
+        $item->set_name($item->get_name() . ' (op afroep vanaf ' . date(get_option('date_format'), strtotime($_POST['emnl-later-delivery-date'])) . ')');
+    }
+
+
+}
+
+add_filter('woocommerce_cart_shipping_method_full_label', 'enml_woocommerce_cart_shipping_method_full_label', 10, 2);
+/**
+ * @brief modify shipping label display in cart
+ **/
+
+function enml_woocommerce_cart_shipping_method_full_label($label, $method)
+{
+    if(is_cart()) return $label;
+    $chosen_shipping_method_id = WC()->session->get('chosen_shipping_methods')[0];
+
+    $posted_data_string = isset($_POST['post_data']) ? wp_unslash($_POST['post_data']) : '';
+    if (!empty($posted_data_string)) {
+        parse_str($posted_data_string, $posted_data);
+        if ($chosen_shipping_method_id === $method->id && isset($posted_data['emnl-later-delivery-checkbox'])) {
+
+            //get date from session
+            $date = is_null(WC()->session->get('emnl-later-delivery-date')) ? '' : WC()->session->get('emnl-later-delivery-date');
+            // if date is in the request , get the direct value because session would not be updated of any changes yet
+            if (isset($posted_data['emnl-later-delivery-date']) && !empty($posted_data['emnl-later-delivery-date'])) {
+
+             $date = $posted_data['emnl-later-delivery-date'];
+
+            }
+
+            if(!empty($date)) {
+                $label .= ' (op afroep vanaf ' . date(get_option('date_format'), strtotime($date)) . ')';
+            }
+
+
+        }
+    }
+
+
+
+
+
+
+    return $label;
+}
 
 add_action('wp_footer', 'emnl_later_delivery_script');
 /**
@@ -216,7 +259,6 @@ function emnl_later_delivery_script()
 }
 
 
-
 add_action('woocommerce_after_checkout_validation', 'custom_checkout_field_validation_process', 20, 2);
 /**
  * @brief Validate when submitting order
@@ -232,8 +274,8 @@ function custom_checkout_field_validation_process($data, $errors)
 
 
     if (isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
-        $validate_date = explode('/', $_POST['emnl-later-delivery-date']);
-        if (!is_array($validate_date) || count($validate_date) !== 3 || !checkdate($validate_date[0], $validate_date[1], $validate_date[2])) {
+        $validate_date = explode('-', $_POST['emnl-later-delivery-date']);
+        if (!is_array($validate_date) || count($validate_date) !== 3 || !checkdate($validate_date[1], $validate_date[2], $validate_date[0])) {
             $errors->add('requirements', __("Please fill in a valid date!", "woocommerce"));
 
         }
@@ -252,13 +294,13 @@ function wordimpress_custom_checkout_field_update_order_meta($order_id)
 {
     //check if $_POST has our custom fields, and save them if true
     $order = wc_get_order($order_id);
-    if ( $order && isset($_POST['emnl-later-delivery-checkbox']) && isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
+    if ($order && isset($_POST['emnl-later-delivery-checkbox']) && isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
         $order->update_meta_data('emnl_later_delivery_date', $_POST['emnl-later-delivery-date']);
         $order->save();
     }
 }
 
- add_filter( 'woocommerce_email_order_meta_fields', 'enml_email_order_meta_fields' ,10,3);
+add_filter('woocommerce_email_order_meta_fields', 'enml_email_order_meta_fields', 10, 3);
 /**
  * @brief Add the Custom Field Data to Order Emails
  * @param $fields
@@ -268,16 +310,16 @@ function wordimpress_custom_checkout_field_update_order_meta($order_id)
  */
 function enml_email_order_meta_fields($fields, $sent_to_admin, $order)
 {
-    if($order){
+    if ($order) {
         $delivery_date_later = $order->get_meta('emnl_later_delivery_date', true);
 
-        if(is_array($fields) && !empty($delivery_date_later)){
+        if (is_array($fields) && !empty($delivery_date_later)) {
 
-            $fields[] = array('label' => __('Deliver later','emnl-later-delivery-on-demand') ,
-                'value' => __('Yes','emnl-later-delivery-on-demand')
+            $fields[] = array('label' => __('Deliver later', 'emnl-later-delivery-on-demand'),
+                'value' => __('Yes', 'emnl-later-delivery-on-demand')
             );
 
-            $fields[] = array('label' => __('Delivery date','emnl-later-delivery-on-demand') ,
+            $fields[] = array('label' => __('Delivery date', 'emnl-later-delivery-on-demand'),
                 'value' => date(get_option('date_format'), strtotime($delivery_date_later))
             );
         }
@@ -290,33 +332,33 @@ function enml_email_order_meta_fields($fields, $sent_to_admin, $order)
 }
 
 
-
 add_action('add_meta_boxes_shop_order', 'enml_later_delivery_order_editor_info_meta_box');
 
 /**
  * @brief add the metabox to order editor page
  */
-function enml_later_delivery_order_editor_info_meta_box(){
+function enml_later_delivery_order_editor_info_meta_box()
+{
 
 
     global $post;
-    if(is_null($post)) return;
+    if (is_null($post)) return;
     $order = wc_get_order($post->ID);
 
-    if($order){
+    if ($order) {
 
         $delivery_date_later = $order->get_meta('emnl_later_delivery_date', true);
 
 
-        if(!empty($delivery_date_later)){
+        if (!empty($delivery_date_later)) {
 
-        add_meta_box('emnl_later_delivery_date_metabox_output',
-        __('Delivery date information', 'emnl_later_delivery_date'),
-        'emnl_later_delivery_date_metabox_output',
-        'shop_order',
-        'side',
-        'high'
-    );
+            add_meta_box('emnl_later_delivery_date_metabox_output',
+                __('Delivery date information', 'emnl_later_delivery_date'),
+                'emnl_later_delivery_date_metabox_output',
+                'shop_order',
+                'side',
+                'high'
+            );
         }
 
     }
@@ -326,22 +368,24 @@ function enml_later_delivery_order_editor_info_meta_box(){
 /**
  * @brief output order editor metabox for delivery later content
  */
-function emnl_later_delivery_date_metabox_output(){
+function emnl_later_delivery_date_metabox_output()
+{
     global $post;
-    if(is_null($post)) return;
+    if (is_null($post)) return;
     $order = wc_get_order($post->ID);
 
-    if($order){
+    if ($order) {
         $delivery_date_later = $order->get_meta('emnl_later_delivery_date', true);
 
-        if(!empty($delivery_date_later)){
+        if (!empty($delivery_date_later)) {
 
-            echo  __('Deliver later','emnl-later-delivery-on-demand') .' : '.__('Yes','emnl-later-delivery-on-demand').'<br/>';
-            echo   __('Delivery date','emnl-later-delivery-on-demand') .' : '.date(get_option('date_format'), strtotime($delivery_date_later));
+            echo __('Deliver later', 'emnl-later-delivery-on-demand') . ' : ' . __('Yes', 'emnl-later-delivery-on-demand') . '<br/>';
+            echo __('Delivery date', 'emnl-later-delivery-on-demand') . ' : ' . date(get_option('date_format'), strtotime($delivery_date_later));
         }
-
 
 
     }
 
 }
+
+
