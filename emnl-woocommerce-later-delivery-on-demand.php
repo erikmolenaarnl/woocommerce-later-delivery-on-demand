@@ -105,7 +105,7 @@ function emnl_later_delivery_on_demand()
 
         } else {
             $checked = false;
-            WC()->session->set('emnl-later-delivery-instructions');
+            WC()->session->set('emnl-later-delivery-instructions','');
             WC()->session->set('emnl-later-delivery-checkbox-selection', false);
         }
 
