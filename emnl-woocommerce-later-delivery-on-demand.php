@@ -105,7 +105,7 @@ function emnl_later_delivery_on_demand()
 
         } else {
             $checked = false;
-            WC()->session->set('emnl-later-delivery-instructions', '');
+            WC()->session->set('emnl-later-delivery-instructions');
             WC()->session->set('emnl-later-delivery-checkbox-selection', false);
         }
 
@@ -199,7 +199,7 @@ function emnl_later_delivery_on_demand()
 
 }
 
-add_action('woocommerce_checkout_create_order_shipping_item', 'enml_modify_shipping_method_title', 10, 4);
+add_action('woocommerce_checkout_create_order_shipping_item', 'emnl_modify_shipping_method_title', 10, 4);
 /**
  * @brief modify shipping method title to include delivery date
  * @param $item
@@ -208,7 +208,7 @@ add_action('woocommerce_checkout_create_order_shipping_item', 'enml_modify_shipp
  * @param $order
  *
  */
-function enml_modify_shipping_method_title($item, $package_key, $package, $order)
+function emnl_modify_shipping_method_title($item, $package_key, $package, $order)
 {
     if (isset($_POST['emnl-later-delivery-checkbox']) && isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
 
@@ -219,12 +219,12 @@ function enml_modify_shipping_method_title($item, $package_key, $package, $order
 
 }
 
-add_filter('woocommerce_cart_shipping_method_full_label', 'enml_woocommerce_cart_shipping_method_full_label', 10, 2);
+add_filter('woocommerce_cart_shipping_method_full_label', 'emnl_woocommerce_cart_shipping_method_full_label', 10, 2);
 /**
  * @brief modify shipping label display in cart
  **/
 
-function enml_woocommerce_cart_shipping_method_full_label($label, $method)
+function emnl_woocommerce_cart_shipping_method_full_label($label, $method)
 {
     if (is_cart()) return $label;
     $chosen_shipping_method_id = WC()->session->get('chosen_shipping_methods')[0];
@@ -330,13 +330,13 @@ function wordimpress_custom_checkout_field_update_order_meta($order_id)
 }
 
 
-add_action('woocommerce_email_order_meta', 'enml_email_output_delivery_instructions', 20);
+add_action('woocommerce_email_order_meta', 'emnl_email_output_delivery_instructions', 20);
 
 /**
  * @brief output delivery instructions in relevant emails
  * @param $order
  */
-function enml_email_output_delivery_instructions($order)
+function emnl_email_output_delivery_instructions($order)
 {
     if ($order) {
         $delivery_instructions = $order->get_meta('emnl_later_delivery_instructions', true);
