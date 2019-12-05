@@ -137,16 +137,6 @@ function emnl_later_delivery_on_demand()
     //JQuery is not used to show /hide datepicker field, the field is only rendered when checkbox is checked (since we need to update the values in session )
     if ($checked) {
 
-        echo '<script type="text/javascript">
-
-        jQuery(document).ready(function ($) {
-            
-                $("#emnl-later-delivery-date").on("focusout", function () {
-                    $(document.body).trigger("update_checkout");
-                });
-        });
-
-        </script>';
 
         // The element with date field and further instructions (hidden if checkbox is NOT checked)
         echo '<div id="emnl-later-delivery-wrapper">';
@@ -207,42 +197,6 @@ function emnl_modify_shipping_method_title($item, $package_key, $package, $order
 
 }
 
-add_filter('woocommerce_cart_shipping_method_full_label', 'emnl_woocommerce_cart_shipping_method_full_label', 10, 2);
-/**
- * @brief modify shipping label display in cart
- **/
-
-function emnl_woocommerce_cart_shipping_method_full_label($label, $method)
-{
-    if (is_cart()) return $label;
-    $chosen_shipping_method_id = WC()->session->get('chosen_shipping_methods')[0];
-
-    $posted_data_string = isset($_POST['post_data']) ? wp_unslash($_POST['post_data']) : '';
-    if (!empty($posted_data_string)) {
-        parse_str($posted_data_string, $posted_data);
-        if ($chosen_shipping_method_id === $method->id && isset($posted_data['emnl-later-delivery-checkbox'])) {
-
-            //get date from session
-            $date = is_null(WC()->session->get('emnl-later-delivery-date')) ? '' : WC()->session->get('emnl-later-delivery-date');
-            // if date is in the request , get the direct value because session would not be updated of any changes yet
-            if (isset($posted_data['emnl-later-delivery-date']) && !empty($posted_data['emnl-later-delivery-date'])) {
-
-                $date = $posted_data['emnl-later-delivery-date'];
-
-            }
-
-            if (!empty($date)) {
-                $formatted_date = date_i18n(get_option('date_format'), strtotime($date));
-
-                $label .= ' (op afroep vanaf ' . strtolower($formatted_date) . ')';
-            }
-
-
-        }
-    }
-    return $label;
-
-}
 
 add_action('wp_footer', 'emnl_later_delivery_script');
 /**
