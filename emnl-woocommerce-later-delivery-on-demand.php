@@ -12,6 +12,25 @@
 if (!defined('ABSPATH')) exit;
 
 
+function enml_later_delivery_get_min_days()
+{
+    return apply_filters('enml_later_delivery_min_days_string', '7');
+}
+
+
+function enml_later_delivery_is_checkbox_enabled()
+{
+
+    $checked = WC()->session->get('emnl-later-delivery-checkbox-selection');
+    $posted_data_string = isset($_POST['post_data']) ? wp_unslash($_POST['post_data']) : '';
+    if (!empty($posted_data_string)) {
+        parse_str($posted_data_string, $posted_data);
+        $checked = isset($posted_data['emnl-later-delivery-checkbox']); // the POST value should override the session stored value if it exists
+    }
+    return $checked;
+
+}
+
 add_action('woocommerce_review_order_after_shipping', 'emnl_later_delivery_on_demand');
 /**
  * @brief The delivery option tied to an action hook , outputting delivery fields on checkout after shipping
@@ -92,19 +111,16 @@ function emnl_later_delivery_on_demand()
 
     }
 
-    $posted_data_string = isset($_POST['post_data']) ? wp_unslash($_POST['post_data']) : '';
 
-    $checked = WC()->session->get('emnl-later-delivery-checkbox-selection');
     $date = is_null(WC()->session->get('emnl-later-delivery-date')) ? '' : WC()->session->get('emnl-later-delivery-date');
+    $posted_data_string = isset($_POST['post_data']) ? wp_unslash($_POST['post_data']) : '';
+    $checked = enml_later_delivery_is_checkbox_enabled();
 
     if (!empty($posted_data_string)) {
         parse_str($posted_data_string, $posted_data);
-        if (isset($posted_data['emnl-later-delivery-checkbox'])) {
-            $checked = true;
+        if ($checked) {
             WC()->session->set('emnl-later-delivery-checkbox-selection', true);
-
         } else {
-            $checked = false;
             WC()->session->set('emnl-later-delivery-date', '');
             WC()->session->set('emnl-later-delivery-checkbox-selection', false);
         }
@@ -121,9 +137,6 @@ function emnl_later_delivery_on_demand()
         }
     }
 
-
-
-
     // Create the later delivery checkbox
     woocommerce_form_field('emnl-later-delivery-checkbox', array(
         'type' => 'checkbox',
@@ -133,6 +146,9 @@ function emnl_later_delivery_on_demand()
         'default' => $checked
     ), $checked
     );
+
+    // an action allowing 3rd party to get checkbox value
+    do_action('enml_later_delivery_before_datepicker_output', $checked);
 
     //JQuery is not used to show /hide datepicker field, the field is only rendered when checkbox is checked (since we need to update the values in session )
     if ($checked) {
@@ -156,8 +172,8 @@ function emnl_later_delivery_on_demand()
         $delivery_instructions = ob_get_clean();
         echo $delivery_instructions;
         //calculate min date within 7 days
-        $min_date = date('Y-m-d', strtotime(date('Y-m-d') . '+7 days'));
-
+        $days_val = enml_later_delivery_get_min_days();
+        $min_date = date('Y-m-d', strtotime(date('Y-m-d') . "+$days_val days"));
         woocommerce_form_field('emnl-later-delivery-date', array(
             'type' => 'date',
             'custom_attributes' => array('min' => $min_date),
@@ -177,6 +193,7 @@ function emnl_later_delivery_on_demand()
 
 }
 
+
 add_action('woocommerce_checkout_create_order_shipping_item', 'emnl_modify_shipping_method_title', 10, 4);
 /**
  * @brief modify shipping method title to include delivery date
@@ -191,13 +208,19 @@ function emnl_modify_shipping_method_title($item, $package_key, $package, $order
     if (isset($_POST['emnl-later-delivery-checkbox']) && isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
 
         $formatted_date = date_i18n(get_option('date_format'), strtotime($_POST['emnl-later-delivery-date']));
-        $item->set_name($item->get_name() . ' (op afroep vanaf ' . strtolower($formatted_date) . ')');
-    }
 
+        $item->add_meta_data(__('Later Delivery','woocommerce'), strtolower($formatted_date));
+    }
 
 }
 
-
+add_action('woocommerce_admin_order_data_after_order_details','enml_admin_order_display_date_field');
+function enml_admin_order_display_date_field($order){
+    $date_field = $order->get_meta('emnl_later_delivery_date',true);
+    if(!empty($date_field)){
+        echo '<p class="form-field form-field-wide"><strong>'. __('Later Delivery','woocommerce').': </br>'. $date_field .'</strong></p>';
+    }
+}
 add_action('wp_footer', 'emnl_later_delivery_script');
 /**
  * @brief the initial javascript required to activate checkbox
@@ -244,18 +267,15 @@ function custom_checkout_field_validation_process($data, $errors)
 
     if (isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
         $validate_date = explode('-', $_POST['emnl-later-delivery-date']);
-        $min_date = date('Y-m-d', strtotime(date('Y-m-d') . '+7 days'));
+        $days_val = enml_later_delivery_get_min_days();
+        $min_date = date('Y-m-d', strtotime(date('Y-m-d') . "+{$days_val} days"));
 
         if (
             !is_array($validate_date) || count($validate_date) !== 3 || !checkdate($validate_date[1], $validate_date[2], $validate_date[0])
             || strtotime($min_date) > strtotime($_POST['emnl-later-delivery-date'])
         ) {
 
-
-            $errors->add('requirements', __("Please fill in a valid date which is minimal 7 days in the future!", "woocommerce"));
-
-
-
+            $errors->add('requirements', __("Please fill in a valid date which is minimal {$days_val} days in the future!", "woocommerce"));
 
         } else {
             //all good , save the date to session
@@ -268,19 +288,32 @@ function custom_checkout_field_validation_process($data, $errors)
 
 }
 
+add_action('woocommerce_checkout_update_order_meta', 'emnl_save_date_to_order_meta');
+/**
+ * @brief Save the New Checkout Fields Upon Successful Order , only if the delivery later option was selected
+ * @param $order_id
+ */
+function emnl_save_date_to_order_meta($order_id)
+{
+    //check if $_POST has our custom fields, and save them if true
+    $order = wc_get_order($order_id);
+    if ($order && isset($_POST['emnl-later-delivery-checkbox']) && isset($_POST['emnl-later-delivery-date']) && !empty($_POST['emnl-later-delivery-date'])) {
+        $order->update_meta_data('emnl_later_delivery_date', WC()->session->get('emnl-later-delivery-date'));
+        $order->save();
+    }
+}
 
 
-
-add_action('woocommerce_email_order_meta', 'emnl_email_output_delivery_instructions', 20,2);
+add_action('woocommerce_email_order_meta', 'emnl_email_output_delivery_instructions', 20, 2);
 
 /**
  * @brief output delivery instructions in relevant emails
  * @param $order
  * @param $sent_to_admin
  */
-function emnl_email_output_delivery_instructions($order,$sent_to_admin)
+function emnl_email_output_delivery_instructions($order, $sent_to_admin)
 {
-    if ($order && !$sent_to_admin && strpos($order->get_shipping_method(),'op afroep') !== false ) {
+    if ($order && !$sent_to_admin && $order->meta_exists('emnl_later_delivery_date')) {
 
         //generate message
 
